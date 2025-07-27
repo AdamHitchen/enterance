@@ -2,6 +2,7 @@
 name = "enterance"
 version = "1.0.4"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -15,8 +16,8 @@ winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "winuser",
 toml = "0.8"
 bytemuck = { version = "1.23", features = ["derive"] }
 
+[build-dependencies]
+prost-build = "0.14"
+
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 termion = "4.0"
-
-[build-dependencies]
-prost-build = "0.14.1"
