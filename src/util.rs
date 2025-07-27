@@ -166,7 +166,7 @@ fn parse_server_list_json(server_json: &ServerListJSON) -> Result<ServerList> {
 	for server in &server_json.servers {
 		let name = format!("{}(0)", server.name);
 		let title = format!("{}(0)", server.title);
-		let server_info = ServerInfo {
+		let server_info = server_list::ServerInfo {
 			id: server.id,
 			name: utf16_to_bytes(&name),
 			category: utf16_to_bytes(&server.category),
@@ -177,7 +177,9 @@ fn parse_server_list_json(server_json: &ServerListJSON) -> Result<ServerList> {
 			port: server.port,
 			available: server.available,
 			unavailable_message: utf16_to_bytes(&server.unavailable_message),
-			host: if server.address.is_some() { vec![] } else { utf16_to_bytes_opt(server.host.clone()) },
+			host:
+				if server.address.is_some() || server.host.is_none() { None }
+				else { Some(utf16_to_bytes_opt(server.host.clone())) },
 		};
 		server_list.servers.push(server_info);
 	}

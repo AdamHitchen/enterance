@@ -17,3 +17,6 @@ bytemuck = { version = "1.23", features = ["derive"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 termion = "4.0"
+
+[build-dependencies]
+prost-build = "0.14.1"
