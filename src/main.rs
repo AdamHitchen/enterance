@@ -1,7 +1,9 @@
 #[cfg(target_os = "windows")]
 mod game;
 #[cfg(target_os = "windows")]
-mod serverlist;
+pub mod serverlist {
+    include!(concat!(env!("OUT_DIR"), "/tera.rs"));
+}
 
 mod util;
 
