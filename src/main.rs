@@ -11,12 +11,14 @@ use crate::util::*;
 
 use anyhow::{Result, Error};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Serializer;
 use std::env::args;
 use std::fs::{File, exists};
 use std::io::Write;
 use std::process::exit;
+use reqwest::Client;
+use tokio::try_join;
 
 const MAX_RETRIES: u8 = 3;
 
@@ -32,6 +34,7 @@ async fn main() -> Result<()> {
 	}
 
 	let no_update = args().any(|arg| arg == "--no-update");
+	let client = reqwest::Client::builder().cookie_store(true).build()?;
 
 	if !exists(get_login_token_path()?)? {
 		print!("Login: ");
@@ -39,7 +42,7 @@ async fn main() -> Result<()> {
 		print!("Password: ");
 		let password = read_line()?;
 		println!("Logging in...");
-		login(username, password).await?;
+		login(&client, username, password).await?;
 	}
 
 	if !no_update {
@@ -113,24 +116,81 @@ async fn main() -> Result<()> {
 	Ok(())
 }
 
-async fn login(username: String, password: String) -> Result<()> {
-	let client = reqwest::Client::new();
-
-	let req = client.post(get_config()?.login);
-	let res = req.form(&vec![("login", username), ("password", password)]).send().await?;
-
-	let json: LoginResponse = res.json().await?;
+async fn login_auth_key(client: &Client) -> Result<AuthResponse> {
+	let res = client.get(get_config()?.auth).send().await?;
+	let json: AuthResponse = res.json().await?;
 	if !json.return_value {
-		eprintln!("Invalid login! {} {}", json.return_code, json.msg);
+		eprintln!("Invalid session! {} {}", json.return_code, json.msg);
 		exit(1);
 	}
 
+	Ok(json)
+}
+
+async fn create_session(client: &Client, username: String, password: String) -> Result<()> {
+	dbg!(get_config()?.login);
+	let req = client.post(get_config()?.login);
+	let res = req.form(&vec![("login", username), ("password", password)]).send().await?;
+	res.cookies().find(|cookie| cookie.name().contains("launcher")).unwrap_or_else(|| {
+		eprintln!("Failed to log in");
+		exit(1);
+	});
+
+
+	Ok(())
+}
+
+async fn get_account_info(client: &Client) -> Result<AccountInfoResponse> {
+	let res = client.get(get_config()?.account).send().await?;
+
+	let json: AccountInfoResponse = res.json().await?;
+	if !json.return_value {
+		eprintln!("Invalid session! {} {}", json.return_code, json.msg);
+		exit(1);
+	}
+
+	Ok(json)
+}
+
+async fn get_char_count(client: &Client) -> Result<CharacterResponse> {
+	let res = client.get(get_config()?.characters).send().await?;
+
+	let json: CharacterResponse = res.json().await?;
+	if !json.return_value {
+		eprintln!("Invalid session! {} {}", json.return_code, json.msg);
+		exit(1);
+	}
+
+	Ok(json)
+}
+
+async fn login(client: &Client, username: String, password: String) -> Result<()> {
+	create_session(client, username, password).await?;
+
+	let (auth, account, characters) = try_join!(
+		login_auth_key(client),
+		get_account_info(client),
+		get_char_count(client),
+	)?;
+
+	let login = LoginResponse {
+		return_value: true,
+		return_code: 0,
+		msg: "success".to_string(),
+		character_count: Some(characters.character_count),
+		permission: account.permission,
+		privilege: account.privilege,
+		user_no: account.user_no,
+		user_name: account.user_name,
+		auth_key: Some(auth.auth_key),
+	};
 	let token_path = get_login_token_path()?;
 	println!("Saving {:?}", token_path);
+	dbg!(&login);
 
 	let file = File::create(token_path)?;
 	let mut serialize = Serializer::new(file);
-	json.serialize(&mut serialize)?;
+	login.serialize(&mut serialize)?;
 
 	Ok(())
 }

@@ -20,6 +20,9 @@ pub struct Config {
 	pub update: String,
 	pub login: String,
 	pub world: String,
+	pub characters: String,
+	pub auth: String,
+	pub account: String,
 	pub path: Option<String>,
 	pub lang: Option<String>,
 }
@@ -30,6 +33,9 @@ impl Config {
 			update: "".to_string(),
 			login: "".to_string(),
 			world: "".to_string(),
+			characters: "".to_string(),
+			auth: "".to_string(),
+			account: "".to_string(),
 			path: Some("Binaries/TERA.exe".to_string()),
 			lang: Some("EUR".to_string()),
 		}
@@ -77,6 +83,48 @@ pub struct LoginResponse {
 	pub user_name: Option<String>,
 	#[serde(rename = "AuthKey")]
 	pub auth_key: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AuthResponse {
+	#[serde(rename = "Return")]
+	pub return_value: bool,
+	#[serde(rename = "ReturnCode")]
+	pub return_code: i64,
+	#[serde(rename = "Msg")]
+	pub msg: String,
+	#[serde(rename = "AuthKey")]
+	pub auth_key: String,
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
+pub struct AccountInfoResponse {
+	#[serde(rename = "Return")]
+	pub return_value: bool,
+	#[serde(rename = "ReturnCode")]
+	pub return_code: i32,
+	#[serde(rename = "Msg")]
+	pub msg: String,
+	#[serde(rename = "Permission")]
+	pub permission: Option<i32>,
+	#[serde(rename = "Privilege")]
+	pub privilege: Option<i32>,
+	#[serde(rename = "UserNo")]
+	pub user_no: Option<i32>,
+	#[serde(rename = "UserName")]
+	pub user_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CharacterResponse {
+	#[serde(rename = "Return")]
+	pub return_value: bool,
+	#[serde(rename = "ReturnCode")]
+	pub return_code: i64,
+	#[serde(rename = "Msg")]
+	pub msg: String,
+	#[serde(rename = "CharacterCount")]
+	pub character_count: String,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
