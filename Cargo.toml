@@ -7,11 +7,12 @@ build = "build.rs"
 [dependencies]
 anyhow = "1.0"
 prost = "0.14"
-reqwest = { version = "0.12", features = ["json", "cookies"] }
+#reqwest = { version = "0.12", features = ["json", "cookies"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 tokio = { version = "1.46", features = ["full"] }
+ureq = {  version = "3.1.0", features = ["json", "cookies"] }
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "winuser", "libloaderapi", "windef", "minwindef", "handleapi", "synchapi", "errhandlingapi", "winbase"] }
 toml = "0.8"
 bytemuck = { version = "1.23", features = ["derive"] }

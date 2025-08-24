@@ -23,16 +23,16 @@ use std::ptr::null_mut;
 use std::slice;
 
 pub async fn launch(exe_path: PathBuf) -> Result<i32> {
-	let client = reqwest::Client::new();
-
 	let config = get_config()?;
-	let req = client.get(config.world);
-	let res = req.send().await?;
+	let res = tokio::task::spawn_blocking(|| {
+		let mut res = ureq::get(config.world).call()?;
+		res.body_mut().read_to_vec()
+	}).await??;
 
 	let server_path = get_server_path()?;
 
 	let mut file = File::create(server_path)?;
-	file.write_all(res.bytes().await?.as_ref())?;
+	file.write_all(&res)?;
 
 	tokio::task::spawn_blocking(move || create_and_run_game_window());
 
