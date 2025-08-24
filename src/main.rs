@@ -17,8 +17,8 @@ use std::env::args;
 use std::fs::{File, exists};
 use std::io::Write;
 use std::process::exit;
-use reqwest::Client;
 use tokio::try_join;
+use ureq::Agent;
 
 const MAX_RETRIES: u8 = 3;
 
@@ -32,9 +32,8 @@ async fn main() -> Result<()> {
 		file.write_all(contents.into_bytes().as_ref())?;
 		return Ok(());
 	}
-
+	let agent = ureq::Agent::new_with_defaults();
 	let no_update = args().any(|arg| arg == "--no-update");
-	let client = reqwest::Client::builder().cookie_store(true).build()?;
 
 	if !exists(get_login_token_path()?)? {
 		print!("Login: ");
@@ -42,7 +41,7 @@ async fn main() -> Result<()> {
 		print!("Password: ");
 		let password = read_line()?;
 		println!("Logging in...");
-		login(&client, username, password).await?;
+		login(&agent, username, password).await?;
 	}
 
 	if !no_update {
@@ -52,12 +51,11 @@ async fn main() -> Result<()> {
 			println!("No local cache found. First run will take some time.");
 		}
 
-		let client = reqwest::Client::new();
-
-		let req = client.get(get_config()?.update);
-		let res = req.send().await?;
-
-		let hashes = res.json::<HashFile>().await?;
+		let req = agent.get(get_config()?.update);
+		let hashes: HashFile = tokio::task::spawn_blocking(move || {
+			let mut res = req.call()?;
+			res.body_mut().read_json()
+		}).await??;
 
 		let my_path = get_my_dir()?;
 		let mut index = 1;
@@ -90,8 +88,16 @@ async fn main() -> Result<()> {
 
 			let mut retries = MAX_RETRIES;
 			let res = loop {
-				let req = client.get(info.url.clone());
-				match req.send().await {
+
+				let req = agent.get(info.url.clone());
+				let res = tokio::task::spawn_blocking(move || {
+					let mut res = req.call()?;
+					res.body_mut()
+						.with_config()
+						.limit(1024 * 1024 * 1024) // for game files
+						.read_to_vec()
+				}).await?;
+				match res {
 					Ok(req) => break req,
 					Err(e) => {
 						if retries < 1 {
@@ -103,7 +109,7 @@ async fn main() -> Result<()> {
 				retries -= 1;
 			};
 			let mut file = File::create(target_file)?;
-			file.write_all(res.bytes().await?.as_ref())?;
+			file.write_all(&res)?;
 			local_cache.insert(info.path.clone(), info.hash.clone());
 		}
 
@@ -116,9 +122,10 @@ async fn main() -> Result<()> {
 	Ok(())
 }
 
-async fn login_auth_key(client: &Client) -> Result<AuthResponse> {
-	let res = client.get(get_config()?.auth).send().await?;
-	let json: AuthResponse = res.json().await?;
+fn login_auth_key(agent: &Agent) -> Result<AuthResponse> {
+	let mut res = agent.get(get_config()?.auth).call()?;
+	let json: AuthResponse = res.body_mut().read_json()?;
+
 	if !json.return_value {
 		eprintln!("Invalid session! {} {}", json.return_code, json.msg);
 		exit(1);
@@ -127,23 +134,24 @@ async fn login_auth_key(client: &Client) -> Result<AuthResponse> {
 	Ok(json)
 }
 
-async fn create_session(client: &Client, username: String, password: String) -> Result<()> {
-	dbg!(get_config()?.login);
-	let req = client.post(get_config()?.login);
-	let res = req.form(&vec![("login", username), ("password", password)]).send().await?;
-	res.cookies().find(|cookie| cookie.name().contains("launcher")).unwrap_or_else(|| {
+fn create_session(client: &Agent, username: String, password: String) -> Result<()> {
+	dbg!(get_config()?);
+	let _ = client.post(get_config()?.login).send_form(
+		vec![("login", username), ("password", password)]
+	)?;
+	let cookies = client.cookie_jar_lock();
+	cookies.iter().find(|c| c.name().contains("launcher")).unwrap_or_else(|| {
 		eprintln!("Failed to log in");
 		exit(1);
 	});
 
-
 	Ok(())
 }
 
-async fn get_account_info(client: &Client) -> Result<AccountInfoResponse> {
-	let res = client.get(get_config()?.account).send().await?;
+fn get_account_info(client: &Agent) -> Result<AccountInfoResponse> {
+	let mut res = client.get(get_config()?.account).call()?;
+	let json: AccountInfoResponse = res.body_mut().read_json()?;
 
-	let json: AccountInfoResponse = res.json().await?;
 	if !json.return_value {
 		eprintln!("Invalid session! {} {}", json.return_code, json.msg);
 		exit(1);
@@ -152,10 +160,10 @@ async fn get_account_info(client: &Client) -> Result<AccountInfoResponse> {
 	Ok(json)
 }
 
-async fn get_char_count(client: &Client) -> Result<CharacterResponse> {
-	let res = client.get(get_config()?.characters).send().await?;
+fn get_char_count(client: &Agent) -> Result<CharacterResponse> {
+	let mut res = client.get(get_config()?.characters).call()?;
+	let json: CharacterResponse = res.body_mut().read_json()?;
 
-	let json: CharacterResponse = res.json().await?;
 	if !json.return_value {
 		eprintln!("Invalid session! {} {}", json.return_code, json.msg);
 		exit(1);
@@ -164,14 +172,30 @@ async fn get_char_count(client: &Client) -> Result<CharacterResponse> {
 	Ok(json)
 }
 
-async fn login(client: &Client, username: String, password: String) -> Result<()> {
-	create_session(client, username, password).await?;
+async fn login(client: &Agent, username: String, password: String) -> Result<()> {
+	let c = client.clone();
 
+	tokio::task::spawn_blocking(|| {
+		let c = c;
+		create_session(&c, username, password)
+	}).await??;
 	let (auth, account, characters) = try_join!(
-		login_auth_key(client),
-		get_account_info(client),
-		get_char_count(client),
+		tokio::task::spawn_blocking({
+			let client = client.clone();
+			move || login_auth_key(&client)
+		}),
+		tokio::task::spawn_blocking({
+			let client = client.clone();
+			move || get_account_info(&client)
+		}),
+		tokio::task::spawn_blocking({
+			let client = client.clone();
+			move || get_char_count(&client)
+		}),
 	)?;
+	let auth = auth?;
+	let account = account?;
+	let characters = characters?;
 
 	let login = LoginResponse {
 		return_value: true,
