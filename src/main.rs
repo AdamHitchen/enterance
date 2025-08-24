@@ -1,4 +1,4 @@
-// #[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
 mod game;
 #[cfg(target_os = "windows")]
 pub mod serverlist {
