@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
 			let mut retries = MAX_RETRIES;
 			let res = loop {
 
-				let req = agent.get(info.url.clone());
+				let req = agent.get(info.url.replace(" ", "%20"));
 				let res = tokio::task::spawn_blocking(move || {
 					let mut res = req.call()?;
 					res.body_mut()
